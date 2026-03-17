@@ -1,0 +1,62 @@
+# CORS for browser access to shared object URLs (e.g. pmtiles).
+# Applied by Tilt local_resource so the job runs on every tilt up.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minio-cors
+  namespace: aggrov5
+data:
+  cors.json: |
+    {
+      "CORSRules": [
+        {
+          "AllowedOrigins": ["*"],
+          "AllowedMethods": ["GET", "HEAD"],
+          "AllowedHeaders": ["*"],
+          "ExposeHeaders": ["ETag", "Content-Length"]
+        }
+      ]
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-cors
+  namespace: aggrov5
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: minio/mc:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Waiting for MinIO..."
+              for i in 1 2 3 4 5 6 7 8 9 10; do
+                if mc alias set myminio http://minio:9000 minioadmin minioadmin 2>/dev/null; then
+                  echo "MinIO ready."
+                  break
+                fi
+                echo "Retry $i/10 in 3s..."
+                sleep 3
+              done
+              mc alias set myminio http://minio:9000 minioadmin minioadmin
+              for bucket in observed-pmtiles predicted-pmtiles; do
+                mc mb myminio/$bucket --ignore-existing 2>/dev/null || true
+                mc cors set-json myminio/$bucket /cors/cors.json && echo "CORS set on $bucket"
+              done
+              echo "Done."
+          volumeMounts:
+            - name: cors
+              mountPath: /cors
+              readOnly: true
+      volumes:
+        - name: cors
+          configMap:
+            name: minio-cors

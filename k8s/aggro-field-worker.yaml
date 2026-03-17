@@ -1,0 +1,60 @@
+# GEE credentials are not in k8s; worker loads them via SOPS (see aggro-field-worker README).
+# To use GEE in-cluster, mount your decrypted credentials or run worker with GEE_CREDENTIALS_ENC + age key.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggro-field-worker
+  namespace: aggrov5
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aggro-field-worker
+  template:
+    metadata:
+      labels:
+        app: aggro-field-worker
+    spec:
+      containers:
+        - name: worker
+          image: aggro-field-worker:latest
+          imagePullPolicy: Never
+          env:
+            - name: TEMPORAL_ADDRESS
+              value: temporal:7233
+            - name: TEMPORAL_NAMESPACE
+              value: default
+            - name: TEMPORAL_TASK_QUEUE
+              value: field-processing
+            - name: MINIO_ENDPOINT
+              value: minio:9000
+            - name: MINIO_ACCESS_KEY
+              value: minioadmin
+            - name: MINIO_SECRET_KEY
+              value: minioadmin
+            - name: OBSERVED_PMTILES_BUCKET
+              value: observed-pmtiles
+            - name: PREDICTED_PMTILES_BUCKET
+              value: predicted-pmtiles
+            - name: GEE_PROJECT
+              value: cpvv2-463207
+            - name: GEE_MAX_WORKERS
+              value: "2"
+            # Base URL for pmtiles in workflow result (e.g. MinIO or CDN). If set, response includes observed_pmtiles_urls and predicted_pmtiles_urls.
+            - name: PMTILES_BASE_URL
+              value: "http://minio:9000"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggro-field-worker
+  namespace: aggrov5
+spec:
+  selector:
+    app: aggro-field-worker
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
