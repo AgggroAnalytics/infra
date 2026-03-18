@@ -1,0 +1,32 @@
+# Temporal worker: finalize_field_processing_db on queue aggro-backend (same DB as API).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggro-backend-temporal-worker
+  namespace: aggrov5
+  labels:
+    app: aggro-backend-temporal-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aggro-backend-temporal-worker
+  template:
+    metadata:
+      labels:
+        app: aggro-backend-temporal-worker
+    spec:
+      containers:
+        - name: worker
+          image: aggro-backend:latest
+          imagePullPolicy: Never
+          command: ["./temporal-worker"]
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://postgres:postgres@aggro-postgres:5432/aggro?sslmode=disable"
+            - name: TEMPORAL_ADDRESS
+              value: "temporal:7233"
+            - name: TEMPORAL_NAMESPACE
+              value: "default"
+            - name: TEMPORAL_BACKEND_TASK_QUEUE
+              value: "aggro-backend"

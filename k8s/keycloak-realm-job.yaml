@@ -1,0 +1,101 @@
+# Idempotent: creates realm aggro (self-registration, no users) + public client aggro-frontend.
+# Run after Keycloak is ready (Tilt local_resource or kubectl apply + wait).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm-bootstrap-script
+  namespace: aggrov5
+data:
+  bootstrap.sh: |
+    #!/bin/sh
+    set -e
+    apk add --no-cache curl jq >/dev/null
+    KC="${KEYCLOAK_INTERNAL_URL:-http://keycloak:8080}"
+    echo "Waiting for Keycloak at $KC ..."
+    i=0
+    while [ "$i" -lt 120 ]; do
+      if curl -sf "$KC/realms/master" >/dev/null 2>&1; then
+        break
+      fi
+      i=$((i + 1))
+      sleep 2
+    done
+    curl -sf "$KC/realms/master" >/dev/null
+
+    TOKEN=$(curl -s -X POST "$KC/realms/master/protocol/openid-connect/token" \
+      -H "Content-Type: application/x-www-form-urlencoded" \
+      -d "client_id=admin-cli" \
+      -d "username=${KEYCLOAK_ADMIN:-admin}" \
+      -d "password=${KEYCLOAK_ADMIN_PASSWORD:-admin}" \
+      -d "grant_type=password" | jq -r .access_token)
+    if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+      echo "Failed to get admin token"
+      exit 1
+    fi
+    AUTH="Authorization: Bearer $TOKEN"
+
+    if [ "$(curl -s -o /dev/null -w '%{http_code}' -H "$AUTH" "$KC/admin/realms/aggro")" = "200" ]; then
+      echo "Realm aggro already exists"
+    else
+      echo "Creating realm aggro (registration enabled, no users)"
+      curl -sf -X POST "$KC/admin/realms" -H "$AUTH" -H "Content-Type: application/json" -d '{
+        "realm": "aggro",
+        "enabled": true,
+        "registrationAllowed": true,
+        "registrationEmailAsUsername": false,
+        "loginWithEmailAllowed": true,
+        "duplicateEmailsAllowed": false,
+        "resetPasswordAllowed": true,
+        "editUsernameAllowed": true,
+        "verifyEmail": false
+      }'
+    fi
+
+    CID=$(curl -s -H "$AUTH" "$KC/admin/realms/aggro/clients?clientId=aggro-frontend" | jq -r '.[0].id // empty')
+    if [ -n "$CID" ] && [ "$CID" != "null" ]; then
+      echo "Client aggro-frontend already exists"
+    else
+      echo "Creating client aggro-frontend (public, PKCE)"
+      curl -sf -X POST "$KC/admin/realms/aggro/clients" -H "$AUTH" -H "Content-Type: application/json" -d '{
+        "clientId": "aggro-frontend",
+        "name": "Aggro SPA",
+        "enabled": true,
+        "publicClient": true,
+        "directAccessGrantsEnabled": false,
+        "standardFlowEnabled": true,
+        "redirectUris": ["http://localhost:5173/*", "http://127.0.0.1:5173/*"],
+        "webOrigins": ["http://localhost:5173", "http://127.0.0.1:5173", "+"]
+      }'
+    fi
+    echo "Bootstrap done."
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keycloak-realm-bootstrap
+  namespace: aggrov5
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 5
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: alpine:3.19
+          command: ["/bin/sh", "/scripts/bootstrap.sh"]
+          env:
+            - name: KEYCLOAK_INTERNAL_URL
+              value: http://keycloak:8080
+            - name: KEYCLOAK_ADMIN
+              value: admin
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              value: admin
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+      volumes:
+        - name: scripts
+          configMap:
+            name: keycloak-realm-bootstrap-script
+            defaultMode: 0755

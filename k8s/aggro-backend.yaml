@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggro-backend
+  namespace: aggrov5
+  labels:
+    app: aggro-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aggro-backend
+  template:
+    metadata:
+      labels:
+        app: aggro-backend
+    spec:
+      containers:
+        - name: backend
+          image: aggro-backend:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://postgres:postgres@aggro-postgres:5432/aggro?sslmode=disable"
+            - name: RABBIT_URL
+              value: "amqp://guest:guest@rabbitmq:5672/"
+            - name: BACKEND_REPLY_QUEUE
+              value: "field.backend.replies"
+            - name: TILES_EXCHANGE
+              value: "field.tiles.exchange"
+            - name: TILES_ROUTING
+              value: "field.tiles.main"
+            - name: GEO_EXCHANGE
+              value: "field.geo.exchange"
+            - name: GEO_ROUTING
+              value: "field.geo.main"
+            - name: ML_EXCHANGE
+              value: "field.ml.exchange"
+            - name: ML_ROUTING
+              value: "field.ml.main"
+            - name: PMTILES_EXCHANGE
+              value: "field.pmtiles.exchange"
+            - name: PMTILES_ROUTING
+              value: "field.pmtiles.build"
+            - name: HTTP_ADDR
+              value: ":8080"
+            - name: TEMPORAL_ADDRESS
+              value: "temporal:7233"
+            - name: TEMPORAL_NAMESPACE
+              value: "default"
+            # Must match JWT iss (browser → localhost:8180). JWKS from in-cluster Keycloak.
+            - name: KEYCLOAK_ISSUER
+              value: "http://localhost:8180/realms/aggro"
+            - name: KEYCLOAK_JWKS_URI
+              value: "http://keycloak:8080/realms/aggro/protocol/openid-connect/certs"
+            - name: S3_INTERNAL_URL
+              value: "http://minio:9000"
+            - name: S3_BUCKET
+              value: "aggro"
+            - name: S3_ACCESS_KEY_ID
+              value: "minioadmin"
+            - name: S3_SECRET_ACCESS_KEY
+              value: "minioadmin"
+            - name: S3_REGION
+              value: "us-east-1"
+            - name: CORS_ALLOW_ORIGINS
+              value: "http://localhost:5173,http://127.0.0.1:5173"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggro-backend
+  namespace: aggrov5
+spec:
+  selector:
+    app: aggro-backend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP

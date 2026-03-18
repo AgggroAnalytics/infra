@@ -42,8 +42,9 @@ spec:
             - name: GEE_MAX_WORKERS
               value: "2"
             # Base URL for pmtiles in workflow result (e.g. MinIO or CDN). If set, response includes observed_pmtiles_urls and predicted_pmtiles_urls.
+            # Paths match minio-gateway; from host use tilt port-forward 8081 → open URLs with localhost:8081
             - name: PMTILES_BASE_URL
-              value: "http://minio:9000"
+              value: "http://minio-gateway:8080"
 ---
 apiVersion: v1
 kind: Service

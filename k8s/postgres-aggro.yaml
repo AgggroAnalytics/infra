@@ -1,0 +1,66 @@
+# Postgres + PostGIS for aggro-backend (fields, tiles, analytics).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: aggro-pgdata
+  namespace: aggrov5
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggro-postgres
+  namespace: aggrov5
+  labels:
+    app: aggro-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aggro-postgres
+  template:
+    metadata:
+      labels:
+        app: aggro-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgis/postgis:16-3.5-alpine
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: postgres
+            - name: POSTGRES_DB
+              value: aggro
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "aggro"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: aggro-pgdata
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggro-postgres
+  namespace: aggrov5
+spec:
+  selector:
+    app: aggro-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP

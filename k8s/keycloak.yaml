@@ -1,0 +1,61 @@
+# Keycloak dev mode. Admin UI: port-forward 8180 → register users at /realms/aggro/account
+# JWT iss: http://localhost:8180/realms/aggro (must match frontend + backend KEYCLOAK_ISSUER)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: aggrov5
+  labels:
+    app: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.0.7
+          args:
+            - start-dev
+            - --http-enabled=true
+            - --hostname-strict=false
+          env:
+            - name: KEYCLOAK_ADMIN
+              value: admin
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              value: admin
+            - name: KC_HOSTNAME
+              value: http://localhost:8180
+          ports:
+            - containerPort: 8080
+          startupProbe:
+            httpGet:
+              path: /realms/master
+              port: 8080
+            periodSeconds: 5
+            failureThreshold: 72
+          # Keycloak 26: /health/* на 8080 часто 404; health на :9000. Для dev достаточно master realm.
+          readinessProbe:
+            httpGet:
+              path: /realms/master
+              port: 8080
+            periodSeconds: 10
+            initialDelaySeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: aggrov5
+spec:
+  selector:
+    app: keycloak
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP

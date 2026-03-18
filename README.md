@@ -1,58 +1,66 @@
 # aggrov5 infra (Kubernetes + Tilt)
 
-- **Temporal** – workflow engine (port 7233)
-- **Temporal UI** – http://localhost:8080 (after port-forward)
-- **PostgreSQL** – used by Temporal
-- **MinIO** – object storage for observed/predicted PMTiles (9000, 9001). Tilt runs the `minio-cors` job on every `tilt up` so shared object URLs work in the browser.
-- **aggro-field-worker** – Temporal worker (GEE, ML, PMTiles via [felt/tippecanoe](https://github.com/felt/tippecanoe))
+## Stack (`tilt up`)
+
+| Service | Role | Port-forward (Tilt) |
+|---------|------|---------------------|
+| **temporal** | Workflow engine | **7233** |
+| **temporal-ui** | Web UI | **8080** |
+| **keycloak** | OIDC; realm **aggro** (саморегистрация), client **aggro-frontend** | **8180** |
+| **keycloak-realm-bootstrap** | Job (Tilt): создаёт realm без пользователей + SPA-клиент | — |
+| **aggro-postgres** | PostGIS DB for aggro-backend | **5433→5432** |
+| **postgres** | Legacy PVC (Temporal dev uses embedded DB) | — |
+| **rabbitmq** | Tile/geo/ML job queues for API | — |
+| **minio** | Object storage | **9000**, console **9001** |
+| **minio-gateway** | HTTP gateway to MinIO buckets | **8081** |
+| **aggro-backend** | HTTP API + JWT (Keycloak) + CORS для :5173 | **8090** |
+| **aggro-backend-temporal-worker** | Activity `finalize_field_processing_db` | — |
+| **aggro-field-worker** | `FieldProcessingWorkflow` | — |
+
+### Keycloak
+
+- Админ-консоль: http://localhost:8180 — **admin / admin**
+- Realm **aggro**: на странице входа есть **Register** (саморегистрация, без подтверждения email в dev).
+- Фронт: `VITE_KEYCLOAK_URL=http://localhost:8180`, realm `aggro`, client `aggro-frontend`.
+- Job **`keycloak-realm-bootstrap`** при каждом `tilt up` пересоздаётся и идемпотентно создаёт realm и клиент (пользователей не создаёт).
 
 ## Prerequisites
 
-- Kubernetes cluster (e.g. minikube, kind, Docker Desktop k8s)
+- Kubernetes (kind, minikube, Docker Desktop)
 - [Tilt](https://docs.tilt.dev/install.html)
 
-GEE credentials are **not** in k8s; they are handled by **aggro-field-worker** via SOPS. See [aggro-field-worker/secrets/README.md](../aggro-field-worker/secrets/README.md).
+GEE: [aggro-field-worker/secrets/README.md](../aggro-field-worker/secrets/README.md).
 
-## Run with Tilt
-
-From the **aggrov5** repo root:
-
+## Run
+m
 ```bash
+cd /path/to/aggrov5
 tilt up
 ```
 
-Tilt will:
-
-- Build `aggro-field-worker` and load it into your cluster (use a cluster that uses the local Docker daemon, e.g. kind or minikube with docker driver, so `imagePullPolicy: Never` works).
-- Deploy namespace, postgres, temporal, temporal-ui, minio, aggro-field-worker.
-- Port-forward Temporal UI to 8080 and Temporal to 7233.
-
-To run the workflow from your machine, ensure port 7233 is forwarded, then:
+- API: http://localhost:8090  
+- OpenAPI: http://localhost:8090/openapi.yaml  
+- Keycloak: http://localhost:8180  
+- Temporal UI: http://localhost:8080  
 
 ```bash
-# From aggrov5 root
 TEMPORAL_ADDRESS=localhost:7233 uv run --project aggro-field-worker python run_field_workflow.py
 ```
 
-If the worker runs inside the cluster, use `kubectl port-forward -n aggrov5 svc/temporal 7233:7233` if Tilt didn’t set it up.
+**PMTiles:** воркер шлёт URL с `minio-gateway`; с хоста используй порт **8081**.
 
-## Local Kubernetes (kind)
-
-So that the worker image is available in the cluster:
+## kind
 
 ```bash
 kind create cluster
 tilt up
-# Tilt will build and load the image into kind
 ```
 
-## Manifest reference
+## Manifests (`infra/k8s/`)
 
 | File | Contents |
 |------|----------|
-| `k8s/namespace.yaml` | Namespace `aggrov5` |
-| `k8s/postgres.yaml` | PostgreSQL for Temporal |
-| `k8s/temporal.yaml` | Temporal server (auto-setup) |
-| `k8s/temporal-ui.yaml` | Temporal Web UI |
-| `k8s/minio.yaml` | MinIO server |
-| `k8s/aggro-field-worker.yaml` | Field processing worker (GEE credentials via SOPS in worker, not k8s) |
+| `keycloak.yaml` | Keycloak `start-dev`, hostname `http://localhost:8180` (iss в JWT) |
+| `keycloak-realm-job.yaml` | ConfigMap + Job: realm **aggro** + client **aggro-frontend** |
+| `aggro-backend.yaml` | `KEYCLOAK_ISSUER`, JWKS, `CORS_ALLOW_ORIGINS` для Vite |
+| … | (остальные как раньше) |
