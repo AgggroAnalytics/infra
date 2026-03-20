@@ -1,0 +1,100 @@
+# In-cluster Docker Distribution registry (same manifest for local k3d and VPS).
+#
+# Стабильный clusterIP нужен для pull образов: kubelet/containerd на НОДЕ не резолвит
+# *.svc.cluster.local (это только CoreDNS внутри подов). Образы в манифестах — <clusterIP>:5000/...
+# clusterIP в «хвосте» /16, чтобы реже пересекаться с авто-выдачей. Если apply: «already allocated» —
+# смени IP здесь, в infra/k3d/k3s-registries.yaml и дефолт в Tiltfile (или TILT_REGISTRY_CLUSTER_HOST).
+# (k3d service CIDR по умолчанию 10.43.0.0/16). Для kind обычно 10.96.0.0/12 — смени clusterIP и registries.
+#
+# k3d: --registry-config infra/k3d/k3s-registries.yaml (HTTPS + insecure_skip_verify; см. ниже TLS в поде).
+# Tilt: TILT_REGISTRY_CLUSTER_HOST или дефолт в Tiltfile должен совпадать с clusterIP:5000.
+#
+# For production on a VPS: Ingress + TLS; при необходимости убери фиксированный clusterIP (infra/docs/REGISTRY.md).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: docker-registry
+  namespace: aggrov5
+  labels:
+    app: docker-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: docker-registry
+  template:
+    metadata:
+      labels:
+        app: docker-registry
+    spec:
+      initContainers:
+        # Самоподписанный TLS: containerd на ноде ходит по HTTPS; plain HTTP даёт «HTTP response to HTTPS client».
+        # SAN: clusterIP + 127.0.0.1 (docker push через tilt port-forward на localhost).
+        - name: gen-tls
+          image: alpine:3.19
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              apk add --no-cache openssl
+              # IP в SAN = spec.clusterIP сервиса docker-registry (и k3s-registries.yaml / Tilt).
+              openssl req -newkey rsa:2048 -nodes -x509 -days 3650 \
+                -subj "/CN=docker-registry" \
+                -addext "subjectAltName=IP:10.43.253.50,IP:127.0.0.1,DNS:docker-registry.aggrov5.svc.cluster.local" \
+                -keyout /certs/tls.key -out /certs/tls.crt
+              chmod 644 /certs/tls.crt /certs/tls.key
+          volumeMounts:
+            - name: certs
+              mountPath: /certs
+      containers:
+        - name: registry
+          image: registry:2.8
+          ports:
+            - containerPort: 5000
+          env:
+            - name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY
+              value: /var/lib/registry
+            - name: REGISTRY_HTTP_TLS_CERTIFICATE
+              value: /certs/tls.crt
+            - name: REGISTRY_HTTP_TLS_KEY
+              value: /certs/tls.key
+          volumeMounts:
+            - name: certs
+              mountPath: /certs
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/registry
+          readinessProbe:
+            tcpSocket:
+              port: 5000
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: certs
+          emptyDir: {}
+        - name: data
+          # Dev mode: avoid PVC/provisioner dependency, keep registry fast and reliable.
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: docker-registry
+  namespace: aggrov5
+  labels:
+    app: docker-registry
+spec:
+  type: ClusterIP
+  # См. комментарий в шапке; должен совпадать с infra/k3d/k3s-registries.yaml и Tilt host_from_cluster.
+  clusterIP: 10.43.253.50
+  selector:
+    app: docker-registry
+  ports:
+    - name: registry
+      port: 5000
+      targetPort: 5000

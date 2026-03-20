@@ -1,0 +1,13 @@
+# Подключить при создании k3d-кластера:
+#   k3d cluster create dev --registry-config "$(pwd)/infra/k3d/k3s-registries.yaml"
+#
+# Registry в кластере слушает HTTPS (самоподписанный сертификат). Здесь — https + skip verify.
+# Должен совпадать с clusterIP в infra/k8s/docker-registry.yaml и TILT_REGISTRY_CLUSTER_HOST.
+mirrors:
+  "10.43.253.50:5000":
+    endpoint:
+      - "https://10.43.253.50:5000"
+configs:
+  "10.43.253.50:5000":
+    tls:
+      insecure_skip_verify: true

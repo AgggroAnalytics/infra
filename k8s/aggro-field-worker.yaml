@@ -1,5 +1,4 @@
 # GEE credentials are not in k8s; worker loads them via SOPS (see aggro-field-worker README).
-# To use GEE in-cluster, mount your decrypted credentials or run worker with GEE_CREDENTIALS_ENC + age key.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -16,6 +15,11 @@ spec:
       labels:
         app: aggro-field-worker
     spec:
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
       containers:
         - name: worker
           image: aggro-field-worker:latest
@@ -41,8 +45,6 @@ spec:
               value: cpvv2-463207
             - name: GEE_MAX_WORKERS
               value: "2"
-            # Base URL for pmtiles in workflow result (e.g. MinIO or CDN). If set, response includes observed_pmtiles_urls and predicted_pmtiles_urls.
-            # Paths match minio-gateway; from host use tilt port-forward 8081 → open URLs with localhost:8081
             - name: PMTILES_BASE_URL
               value: "http://minio-gateway:8080"
 ---

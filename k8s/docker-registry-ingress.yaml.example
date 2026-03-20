@@ -1,0 +1,29 @@
+# Copy to docker-registry-ingress.yaml, set REGISTRY_HOST, TLS secret, then apply on VPS.
+# CI: docker login REGISTRY_HOST && docker push REGISTRY_HOST/namespace/image:tag
+# Manifests: image: REGISTRY_HOST/namespace/image:tag (+ imagePullSecrets if registry is private)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: docker-registry
+  namespace: aggrov5
+  annotations:
+    # cert-manager example:
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - registry.example.com
+      secretName: docker-registry-tls
+  rules:
+    - host: registry.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: docker-registry
+                port:
+                  number: 5000

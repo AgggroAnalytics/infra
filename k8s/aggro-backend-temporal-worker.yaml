@@ -16,6 +16,11 @@ spec:
       labels:
         app: aggro-backend-temporal-worker
     spec:
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
       containers:
         - name: worker
           image: aggro-backend:latest

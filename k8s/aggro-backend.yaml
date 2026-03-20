@@ -15,24 +15,37 @@ spec:
       labels:
         app: aggro-backend
     spec:
+      # k3d: CoreDNS can be slow on fresh cluster; add explicit hosts for critical services.
+      # Kubernetes injects SERVICE_HOST env vars, but Go net.Dial uses /etc/resolv.conf.
+      # This ensures DNS works even if CoreDNS is briefly unavailable.
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
       containers:
         - name: backend
           image: aggro-backend:latest
           imagePullPolicy: Never
           ports:
             - containerPort: 8080
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 5
+            failureThreshold: 60
           livenessProbe:
             httpGet:
               path: /healthz
               port: 8080
-            initialDelaySeconds: 20
+            initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 5
           readinessProbe:
             httpGet:
               path: /healthz
               port: 8080
-            initialDelaySeconds: 5
             periodSeconds: 5
           env:
             - name: DATABASE_URL
@@ -63,7 +76,6 @@ spec:
               value: "temporal:7233"
             - name: TEMPORAL_NAMESPACE
               value: "default"
-            # Must match JWT iss (browser → localhost:8180). JWKS from in-cluster Keycloak.
             - name: KEYCLOAK_ISSUER
               value: "http://localhost:8180/realms/aggro"
             - name: KEYCLOAK_JWKS_URI

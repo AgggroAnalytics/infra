@@ -10,19 +10,28 @@ data:
     #!/bin/sh
     set -e
     apk add --no-cache curl jq >/dev/null
-    KC="${KEYCLOAK_INTERNAL_URL:-http://keycloak:8080}"
+    # Prefer Kubernetes-injected service env (no DNS dependency), fallback to explicit URL.
+    KC="${KEYCLOAK_INTERNAL_URL:-http://${KEYCLOAK_SERVICE_HOST:-keycloak}:8080}"
     echo "Waiting for Keycloak at $KC ..."
+    CURL_WAIT_OPTS="--connect-timeout 2 --max-time 5"
     i=0
     while [ "$i" -lt 120 ]; do
-      if curl -sf "$KC/realms/master" >/dev/null 2>&1; then
+      if curl $CURL_WAIT_OPTS -sf "$KC/realms/master" >/dev/null 2>&1; then
+        echo "Keycloak is reachable."
         break
       fi
       i=$((i + 1))
+      if [ $((i % 10)) -eq 0 ]; then
+        echo "Still waiting for Keycloak... ($i/120)"
+      fi
       sleep 2
     done
-    curl -sf "$KC/realms/master" >/dev/null
+    if ! curl $CURL_WAIT_OPTS -sf "$KC/realms/master" >/dev/null 2>&1; then
+      echo "Keycloak is not reachable after timeout."
+      exit 1
+    fi
 
-    TOKEN=$(curl -s -X POST "$KC/realms/master/protocol/openid-connect/token" \
+    TOKEN=$(curl --connect-timeout 3 --max-time 15 -s -X POST "$KC/realms/master/protocol/openid-connect/token" \
       -H "Content-Type: application/x-www-form-urlencoded" \
       -d "client_id=admin-cli" \
       -d "username=${KEYCLOAK_ADMIN:-admin}" \
@@ -85,8 +94,6 @@ spec:
           image: alpine:3.19
           command: ["/bin/sh", "/scripts/bootstrap.sh"]
           env:
-            - name: KEYCLOAK_INTERNAL_URL
-              value: http://keycloak:8080
             - name: KEYCLOAK_ADMIN
               value: admin
             - name: KEYCLOAK_ADMIN_PASSWORD

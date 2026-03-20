@@ -26,13 +26,14 @@
 
 ## Prerequisites
 
-- Kubernetes (kind, minikube, Docker Desktop)
+- Kubernetes (kind, minikube, Docker Desktop, **k3d**)
 - [Tilt](https://docs.tilt.dev/install.html)
+- **Docker registry** в кластере: `infra/k8s/docker-registry.yaml`. В **Tilt** пуш идёт через **port-forward на :30500**, NodePort в Tilt не подключается. Подробно: **[infra/docs/REGISTRY.md](docs/REGISTRY.md)**.
 
 GEE: [aggro-field-worker/secrets/README.md](../aggro-field-worker/secrets/README.md).
 
 ## Run
-m
+
 ```bash
 cd /path/to/aggrov5
 tilt up
