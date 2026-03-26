@@ -15,6 +15,8 @@ spec:
       labels:
         app: aggro-field-worker
     spec:
+      # Allow worker graceful shutdown (SIGTERM) before SIGKILL; matches run_worker graceful_shutdown_timeout.
+      terminationGracePeriodSeconds: 95
       dnsPolicy: ClusterFirst
       dnsConfig:
         options:
@@ -25,6 +27,19 @@ spec:
           image: aggro-field-worker:latest
           imagePullPolicy: Never
           env:
+            # Force direct egress (no HTTP(S) proxy) for GEE calls.
+            - name: HTTP_PROXY
+              value: ""
+            - name: HTTPS_PROXY
+              value: ""
+            - name: NO_PROXY
+              value: "*"
+            - name: http_proxy
+              value: ""
+            - name: https_proxy
+              value: ""
+            - name: no_proxy
+              value: "*"
             - name: TEMPORAL_ADDRESS
               value: temporal:7233
             - name: TEMPORAL_NAMESPACE
